@@ -64,24 +64,7 @@ HAL_StatusTypeDef nrf24_spi_transfer_dma(uint8_t *tx_buf, uint8_t *rx_buf,
     return HAL_OK;
 }
 
-// ===== HAL callbacks (tự động gắn cờ hoàn tất DMA) =====
-// Nếu đã có callback phía ứng dụng, định nghĩa macro
-// NRF24_SPI_DMA_USER_SUPPLIES_HAL_CALLBACKS để bỏ 2 hàm dưới đây.
-#ifndef NRF24_SPI_DMA_USER_SUPPLIES_HAL_CALLBACKS
-void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
-{
-    if (hspi == nrf_hspi) {
-        nrf24_spi_dma_complete_cb();
-    }
-}
-void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
-{
-    if (hspi == nrf_hspi) {
-        // Vẫn nhả cờ để không kẹt
-        nrf24_spi_dma_complete_cb();
-    }
-}
-#endif
+
 
 
 

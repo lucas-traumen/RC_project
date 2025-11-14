@@ -43,7 +43,7 @@ typedef enum {
     RC_TX_DONE,
     RC_TX_ERROR
 } RC_TxStatus_t;
-
+extern RC_Frame_t frame;
 // Khởi tạo controller
 void RC_Controller_Init(void);
 

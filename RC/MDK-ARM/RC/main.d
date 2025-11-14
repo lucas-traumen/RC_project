@@ -34,3 +34,4 @@ rc\main.o: ../JoyStick/joystick.h
 rc\main.o: ../Nrf24/nrf24_dma_driver.h
 rc\main.o: ../Nrf24/nrf24_spi_dma.h
 rc\main.o: ../debounce_button/debounce.h
+rc\main.o: ../RcController/rc_radio_cfg.h

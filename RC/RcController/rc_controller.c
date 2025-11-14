@@ -11,9 +11,12 @@
 #define DEBOUNCE_MS        15
 #define SEND_PERIOD_MS     50
 
+// ? –?NH NGHIA BI?N TO¿N C?C (khÙng ph?i extern)
 RC_Frame_t frame;
- Debounce_t joy_btn_db;
- Debounce_t btn_mode_db;
+
+// ? KH?I T?O DEBOUNCE
+static Debounce_t joy_btn_db;
+static Debounce_t btn_mode_db;
 
 /* TX status */
 static MainMode_t main_mode = MAIN_MODE_MANUAL;
@@ -21,32 +24,29 @@ static SubMode_t sub_mode   = SUB_MODE_PWM;
 
 static RC_TxStatus_t rc_tx_status = RC_TX_IDLE;
 
-/* Stub battery v√† line sensor */
-//__weak uint8_t Get_Battery_Percent(void) { return 100; }
+/* Stub battery v‡ line sensor */
 static uint8_t Read_LineSensors(void) { return 0; }
 
-/* H√†m ki·ªÉm tra joystick n√∫t nh·∫•n tr√°i */
+/* H‡m ki?m tra joystick n˙t nh?n tr·i */
 __weak uint8_t Joy_Left_Pressed(void) {
-	
-	return HAL_GPIO_ReadPin(BTN_SUB_MODE_GPIO_Port, BTN_SUB_MODE_Pin);; 
+    return HAL_GPIO_ReadPin(BTN_SUB_MODE_GPIO_Port, BTN_SUB_MODE_Pin);
 }
 
-
-/* Chuy·ªÉn main mode */
+/* Chuy?n main mode */
 static void Toggle_MainMode(void)
 {
     main_mode = (main_mode == MAIN_MODE_MANUAL) ? MAIN_MODE_LINE : MAIN_MODE_MANUAL;
     frame.main_mode = main_mode;
 }
 
-/* Chuy·ªÉn sub mode */
+/* Chuy?n sub mode */
 static void Toggle_SubMode(void)
 {
     sub_mode = (sub_mode == SUB_MODE_PWM) ? SUB_MODE_SERVO : SUB_MODE_PWM;
     frame.sub_mode = sub_mode;
 }
 
-/* Non-blocking send d√πng DMA */
+/* Non-blocking send d˘ng DMA */
 HAL_StatusTypeDef RC_Controller_Send_NB(void)
 {
     if (rc_tx_status == RC_TX_BUSY)
@@ -54,7 +54,7 @@ HAL_StatusTypeDef RC_Controller_Send_NB(void)
 
     rc_tx_status = RC_TX_BUSY;
 
-    // 1) ƒê∆∞a module sang TX mode
+    // 1) –ua module sang TX mode
     uint8_t cfg;
     if (nrf24_read_reg_byte(NRF_REG_CONFIG, &cfg) != HAL_OK) {
         rc_tx_status = RC_TX_ERROR;
@@ -66,24 +66,23 @@ HAL_StatusTypeDef RC_Controller_Send_NB(void)
         return HAL_ERROR;
     }
 
-    // 2) Ghi payload b·∫±ng DMA
+    // 2) Ghi payload b?ng DMA
     if (nrf24_write_tx_payload_dma((uint8_t*)&frame, sizeof(frame)) != HAL_OK) {
         nrf24_flush_tx();
         rc_tx_status = RC_TX_ERROR;
         return HAL_ERROR;
     }
 
-    // Khi DMA xong, callback HAL_SPI_TxRxCpltCallback s·∫Ω g·ªçi RC_Controller_DMA_Callback()
     return HAL_OK;
 }
 
-/* Tr·∫£ tr·∫°ng th√°i TX hi·ªán t·∫°i */
+/* Tr? tr?ng th·i TX hi?n t?i */
 RC_TxStatus_t RC_Controller_GetTxStatus(void)
 {
     return rc_tx_status;
 }
 
-/* Callback g·ªçi khi DMA SPI NRF24 ho√†n t·∫•t */
+/* Callback g?i khi DMA SPI NRF24 ho‡n t?t */
 void RC_Controller_DMA_Callback(void)
 {
     uint8_t status;
@@ -103,13 +102,12 @@ void RC_Controller_DMA_Callback(void)
     }
 }
 
-/* C·∫≠p nh·∫≠t joystick + sensor */
+/* C?p nh?t joystick + sensor */
 void RC_Controller_Update(void)
 {
     /* ===============================
        1) DEBOUNCE n˙t MODE PB0
        =============================== */
-
     Debounce_Update(&btn_mode_db,
                     HAL_GPIO_ReadPin(BTN_MODE_GPIO_Port, BTN_MODE_Pin));
 
@@ -119,9 +117,8 @@ void RC_Controller_Update(void)
     }
 
     /* ============================================
-       2) DEBOUNCE n˙t joystick (n?u b?n cÛ n˙t nh?n)
+       2) DEBOUNCE n˙t joystick
        ============================================ */
-
     Debounce_Update(&joy_btn_db, Joy_Left_Pressed());
 
     if (main_mode == MAIN_MODE_MANUAL)
@@ -135,7 +132,6 @@ void RC_Controller_Update(void)
     /* ===============================
        3) –?c Joystick
        =============================== */
-
     uint16_t joyL[2], joyR[2];
     JoyStick_Read(0, joyL);
     JoyStick_Read(1, joyR);
@@ -148,15 +144,17 @@ void RC_Controller_Update(void)
     /* ===============================
        4) Line sensor
        =============================== */
-
     frame.line_bits = Read_LineSensors();
 }
 
-
-
-/* Kh·ªüi t·∫°o controller */
+/* Kh?i t?o controller */
 void RC_Controller_Init(void)
 {
+    // ? KH?I T?O DEBOUNCE
+    Debounce_Init(&joy_btn_db, 1, DEBOUNCE_MS);  // Pull-up = 1 khi khÙng nh?n
+    Debounce_Init(&btn_mode_db, 0, DEBOUNCE_MS); // No pull = 0 khi khÙng nh?n
+    
+    // Kh?i t?o frame
     memset(&frame, 0, sizeof(frame));
     frame.main_mode = main_mode;
     frame.sub_mode  = sub_mode;

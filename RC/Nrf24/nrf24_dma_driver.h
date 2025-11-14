@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "nrf24_spi_dma.h"
 #include "stm32f1xx_hal.h"
-
+//#include "rc_radio_cfg.h"
 
 // Các l?nh NRF24
 #define NRF_CMD_R_REGISTER      0x00
@@ -72,6 +72,7 @@ HAL_StatusTypeDef nrf24_get_status(uint8_t *status);
 void nrf24_ce_high(void);
 void nrf24_ce_low(void);
 void nrf24_ce_pulse(void);
+
 
 // Ch? 1 l?n truy?n TX k?t thúc (TX_DS) ho?c l?i (MAX_RT)
 HAL_StatusTypeDef nrf24_wait_tx_done(uint32_t timeout_ms, uint8_t *out_status);

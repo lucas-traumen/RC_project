@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "rc_controller.h"
+#include "rc_radio_cfg.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,7 +54,7 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 uint16_t joy0_value[2]={0};
 uint16_t joy1_value[2]={0};
-uint8_t tx_frame[100];
+//RC_Frame_t frame;
 
 /* USER CODE END PV */
 
@@ -69,10 +71,125 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+//HAL_StatusTypeDef RC_TxRadio_Init(void)
+//{
+//    // 1. Khởi tạo driver (CE, CSN, DWT delay)
+//    nrf24_driver_init();
+//    HAL_Delay(10);
+
+//    // 2. Power down trước khi config
+//    uint8_t cfg = 0;
+//    if (nrf24_write_reg_byte(NRF_REG_CONFIG, cfg) != HAL_OK) return HAL_ERROR;
+//    HAL_Delay(5);
+
+//    // 3. Flush FIFO
+//    nrf24_flush_tx();
+//    nrf24_flush_rx();
+
+//    // 4. Cấu hình RF channel
+//    if (nrf24_write_reg_byte(NRF_REG_RF_CH, RC_RF_CH) != HAL_OK) return HAL_ERROR;
+
+//    // 5. Cấu hình RF setup (1 Mbps, 0 dBm)
+//    if (nrf24_write_reg_byte(NRF_REG_RF_SETUP, RC_RF_SETUP) != HAL_OK) return HAL_ERROR;
+
+//    // 6. Cấu hình địa chỉ TX
+//    if (nrf24_write_register(NRF_REG_TX_ADDR, RC_ADDR, 5) != HAL_OK) return HAL_ERROR;
+
+//    // 7. Cấu hình địa chỉ RX pipe 0 (cần cho ACK)
+//    if (nrf24_write_register(NRF_REG_RX_ADDR_P0, RC_ADDR, 5) != HAL_OK) return HAL_ERROR;
+
+//    // 8. Enable Auto-ACK cho pipe 0
+//    if (nrf24_write_reg_byte(NRF_REG_EN_AA, 0x01) != HAL_OK) return HAL_ERROR;
+
+//    // 9. Enable RX address pipe 0
+//    if (nrf24_write_reg_byte(NRF_REG_EN_RXADDR, 0x01) != HAL_OK) return HAL_ERROR;
+
+//    // 10. Setup address width = 5 bytes
+//    if (nrf24_write_reg_byte(NRF_REG_SETUP_AW, 0x03) != HAL_OK) return HAL_ERROR;
+
+//    // 11. Setup retry: 500µs, 5 lần
+//    if (nrf24_write_reg_byte(NRF_REG_SETUP_RETR, 0x15) != HAL_OK) return HAL_ERROR;
+
+//    // 12. RX payload width pipe 0 = 16 bytes (kích thước RC_Frame_t)
+//    if (nrf24_write_reg_byte(NRF_REG_RX_PW_P0, sizeof(RC_Frame_t)) != HAL_OK) return HAL_ERROR;
+
+//    // 13. Power up, TX mode (PRIM_RX = 0)
+//    cfg = NRF_CONFIG_PWR_UP | NRF_CONFIG_EN_CRC;
+//    if (nrf24_write_reg_byte(NRF_REG_CONFIG, cfg) != HAL_OK) return HAL_ERROR;
+//    HAL_Delay(5);  // Chờ power up
+
+//    // 14. Clear các cờ status
+//    if (nrf24_write_reg_byte(NRF_REG_STATUS, 0x70) != HAL_OK) return HAL_ERROR;
+
+//    return HAL_OK;
+//}
+HAL_StatusTypeDef RC_TxRadio_Init(void)
+{
+    // 1) CE/CSN/DWT
+    nrf24_driver_init();
+    HAL_Delay(10);
+
+    // 2) Power-down trước khi cấu hình
+    if (nrf24_write_reg_byte(NRF_REG_CONFIG, 0x00) != HAL_OK) return HAL_ERROR;
+    HAL_Delay(5);
+
+    // 3) FIFO sạch
+    nrf24_flush_tx();
+    nrf24_flush_rx();
+
+    // 4) RF: kênh & tốc độ/công suất
+    if (nrf24_write_reg_byte(NRF_REG_RF_CH,    RC_RF_CH)    != HAL_OK) return HAL_ERROR;
+    if (nrf24_write_reg_byte(NRF_REG_RF_SETUP, RC_RF_SETUP) != HAL_OK) return HAL_ERROR;
+
+    // 5) Địa chỉ (TX_ADDR = RX_ADDR_P0, giữ nguyên cho tiện chuyển qua ACK sau này)
+    if (nrf24_write_register(NRF_REG_TX_ADDR,    RC_ADDR, 5) != HAL_OK) return HAL_ERROR;
+    if (nrf24_write_register(NRF_REG_RX_ADDR_P0, RC_ADDR, 5) != HAL_OK) return HAL_ERROR;
+
+    // 6) TẮT ACK/DPL (bắn mù, không cần RX)
+    if (nrf24_write_reg_byte(NRF_REG_EN_AA,     0x00) != HAL_OK) return HAL_ERROR; // tắt Auto-ACK
+    if (nrf24_write_reg_byte(0x1C /*DYNPD*/,    0x00) != HAL_OK) return HAL_ERROR; // tắt DPL
+    if (nrf24_write_reg_byte(0x1D /*FEATURE*/,  0x00) != HAL_OK) return HAL_ERROR; // tắt FEATURE
+
+    // (Tuỳ chọn) Nếu muốn cố định chiều dài ở PRX thì mới cần RX_PW_P0.
+    // Ở PTX (TX mode) thanh ghi này không bắt buộc; để 0x00 cũng không sao.
+    // if (nrf24_write_reg_byte(NRF_REG_RX_PW_P0, sizeof(RC_Frame_t)) != HAL_OK) return HAL_ERROR;
+
+    // 7) Bật address width=5B, bật pipe0 “đủ thủ tục”
+    if (nrf24_write_reg_byte(NRF_REG_SETUP_AW,  0x03) != HAL_OK) return HAL_ERROR; // 5 bytes
+    if (nrf24_write_reg_byte(NRF_REG_EN_RXADDR, 0x01) != HAL_OK) return HAL_ERROR; // enable pipe0
+
+    // 8) Retry có thể để mặc kệ (ACK tắt nên không dùng); vẫn set an toàn
+    if (nrf24_write_reg_byte(NRF_REG_SETUP_RETR, 0x15) != HAL_OK) return HAL_ERROR;
+
+    // 9) Power-up + TX mode (PRIM_RX=0), bật CRC
+    uint8_t cfg = NRF_CONFIG_PWR_UP | NRF_CONFIG_EN_CRC;  // PRIM_RX=0 mặc định
+    if (nrf24_write_reg_byte(NRF_REG_CONFIG, cfg) != HAL_OK) return HAL_ERROR;
+    HAL_Delay(5); // Tpwrup
+
+    // 10) Clear cờ
+    if (nrf24_write_reg_byte(NRF_REG_STATUS, 0x70) != HAL_OK) return HAL_ERROR;
+
+    return HAL_OK;
+}
+
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi == &hspi2) {
+        nrf24_spi_dma_complete_cb();
+    }
+}
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi == &hspi2) {
+        // Vẫn nhả cờ để không kẹt
+        nrf24_spi_dma_complete_cb();
+    }
+}
 
 /* USER CODE END 0 */
 
-/**
+/**	
   * @brief  The application entry point.
   * @retval int
   */
@@ -107,8 +224,23 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 JoyStick_Init();
-NRF24_SPI_DMA_Init(&hspi2);
-  RC_Controller_Init();
+    NRF24_SPI_DMA_Init(&hspi2);
+    
+    // ✅ THÊM KHỞI TẠO NRF24
+    if (RC_TxRadio_Init() != HAL_OK) {
+        HAL_UART_Transmit(&huart1, (uint8_t*)"NRF24 INIT FAIL\r\n", 17, 100);
+        Error_Handler();
+    }
+    
+    RC_Controller_Init();
+    
+    HAL_UART_Transmit(&huart1, (uint8_t*)"RC TX READY\r\n", 13, 100);
+    HAL_Delay(1000);
+
+    /* ===== VÒNG LẶP CHÍNH ===== */
+    uint32_t last_send = 0;
+    const uint32_t SEND_INTERVAL = 50;  // Gửi mỗi 50ms (20Hz)
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -119,39 +251,36 @@ NRF24_SPI_DMA_Init(&hspi2);
 
     /* USER CODE BEGIN 3 */
 
-	RC_Controller_Update();
-    RC_Controller_Send_NB();
+	// 1. Cập nhật joystick và button
+        RC_Controller_Update();
 
-    // Thêm một delay NHỎ 10ms ở đây để NRF "thở"
-    // Đây mới là delay quan trọng, chứ không phải delay 1000 ở dưới
-    HAL_Delay(10); 
+        // 2. Gửi dữ liệu theo chu kỳ 50ms
+        uint32_t now = HAL_GetTick();
+        if ((now - last_send) >= SEND_INTERVAL)
+        {
+            last_send = now;
 
-    HAL_StatusTypeDef st = nrf24_send_frame_blocking(tx_frame, sizeof(tx_frame), 15);
-			
-    if(st == HAL_OK) 
-    {
-        // Nếu thành công, gửi "OK"
-       HAL_UART_Transmit(&huart1, (uint8_t*)"OK\r\n", 4, 100);
-       // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13); // Nháy LED
-			   //    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); 
-    }
-    else if (st == HAL_TIMEOUT)
-    {
-        // Nếu lỗi TIMEOUT, gửi "TIMEOUT"
-       HAL_UART_Transmit(&huart1, (uint8_t*)"TIMEOUT\r\n", 9, 100);
-        // Tắt LED
-       HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); 
-    }
-    else
-    {
-        // Nếu là lỗi khác (ví dụ HAL_ERROR), gửi "ERROR"
-        HAL_UART_Transmit(&huart1, (uint8_t*)"ERROR\r\n", 7, 100);
-        // Tắt LED
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); 
-    }
+            // ✅ GỬI ĐÚNG BUFFER FRAME (16 bytes)
+            HAL_StatusTypeDef st = nrf24_send_frame_blocking(
+                (uint8_t*)&frame, 
+                sizeof(RC_Frame_t), 
+                20  // Timeout 20ms
+            );
 
-    // Delay 1 giây cho vòng lặp tiếp theo
-    HAL_Delay(10); 
+            if (st == HAL_OK) {
+                HAL_UART_Transmit(&huart1, (uint8_t*)"OK\r\n", 4, 10);
+          //      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+            } 
+            else if (st == HAL_TIMEOUT) {
+                HAL_UART_Transmit(&huart1, (uint8_t*)"TIMEOUT\r\n", 9, 10);
+            }
+            else {
+                HAL_UART_Transmit(&huart1, (uint8_t*)"ERROR\r\n", 7, 10);
+            }
+        }
+
+        // 3. Delay nhỏ tránh quay vòng quá nhanh
+        HAL_Delay(1);
   }
   /* USER CODE END 3 */
 }
@@ -281,7 +410,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
