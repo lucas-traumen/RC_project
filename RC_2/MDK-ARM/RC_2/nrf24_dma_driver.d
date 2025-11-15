@@ -30,5 +30,6 @@ rc_2\nrf24_dma_driver.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h
 rc_2\nrf24_dma_driver.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h
 rc_2\nrf24_dma_driver.o: ..\Nrf24\nrf24_spi_dma.h
 rc_2\nrf24_dma_driver.o: ..\Nrf24\nrf24_conf.h
+rc_2\nrf24_dma_driver.o: ../rc_receiver/rc_radio_cfg.h
 rc_2\nrf24_dma_driver.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
 rc_2\nrf24_dma_driver.o: ../Drivers/CMSIS/Include/core_cm3.h

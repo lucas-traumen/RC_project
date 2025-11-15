@@ -32,8 +32,7 @@ rc_2\main.o: ../car_driver/car.h
 rc_2\main.o: ../car_driver/motor.h
 rc_2\main.o: ../car_driver/pwm.h
 rc_2\main.o: ../servo/servo.h
-rc_2\main.o: ..\rc_receiver\rc_receiver.h
+rc_2\main.o: ../rc_receiver/rc_receiver.h
 rc_2\main.o: ../Nrf24/nrf24_dma_driver.h
 rc_2\main.o: ../Nrf24/nrf24_spi_dma.h
 rc_2\main.o: ../Nrf24/nrf24_conf.h
-rc_2\main.o: ..\rc_receiver\rc_radio_cfg.h

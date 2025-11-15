@@ -682,6 +682,11 @@
               <FileType>5</FileType>
               <FilePath>..\RcController\rc_controller.h</FilePath>
             </File>
+            <File>
+              <FileName>rc_radio_cfg.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\RcController\rc_radio_cfg.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

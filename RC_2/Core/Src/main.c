@@ -52,6 +52,7 @@ TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
 //Servo_t sv_grip, sv_wrist;
+volatile uint8_t nrf_irq_flag = 0; // Cờ báo ngắt từ nRF24 (PB12)
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,27 +67,29 @@ static void MX_TIM1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#include "nrf24_dma_driver.h"
-#include "rc_radio_cfg.h"
-
-
-
 //void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 //{
-//  if (hspi == &hspi2)
-//  {
-//    nrf24_spi_dma_complete_cb();
-//  }
+//    if(hspi == &hspi2)
+//        nrf24_spi_dma_complete_cb();
 //}
 
 //void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 //{
-//  if (hspi == &hspi2)
-//  {
-//    // B�o l?i nhung v?n nh? c? d? kh�ng k?t BUSY
-//    nrf24_spi_dma_complete_cb();
-//  }
+//    if(hspi == &hspi2)
+//     //   nrf24_spi_dma_complete_cb();
+//		Error_Handler();
 //}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    /* Kiểm tra xem có đúng là ngắt từ chân PB12 không */
+    if (GPIO_Pin == GPIO_PIN_12) 
+    {
+        /* Set cờ để RC_Receiver_Task() xử lý */
+        nrf_irq_flag = 1;
+    }
+}
+/* USER CODE BEGIN 4 */
+/* USER CODE END 4 */
 /* USER CODE END 0 */
 
 /**
@@ -131,8 +134,8 @@ int main(void)
   // 3) Kh?i t?o driver nRF24: CE/CSN, DWT delay, SPI abstraction...
   nrf24_driver_init();
 
-  // 4) Kh?i t?o ph?n nh?n RC (config nRF24 ? RX mode + g�n servo n?u d�ng)
-  RC_Receiver_Init(NULL, NULL);   // t?m kh�ng d�ng servo, sau n�y truy?n con tr? Servo_t v�o
+  // 4) Kh?i t?o ph?n nh?n RC (config nRF24 ? RX mode + g�n servo n?u d�ng)
+  RC_Receiver_Init(NULL, NULL);   // t?m kh�ng d�ng servo, sau n�y truy?n con tr? Servo_t v�o
 
   /* USER CODE END 2 */
 
@@ -143,8 +146,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		  RC_Receiver_Task();   // nh?n g�i + �p d?ng di?u khi?n
-        HAL_Delay(10);
+		  RC_Receiver_Task();   // nh?n g�i + �p d?ng di?u khi?n
+        //HAL_Delay(10);
   }
   /* USER CODE END 3 */
 }
@@ -211,7 +214,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -221,7 +224,8 @@ static void MX_SPI2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN SPI2_Init 2 */
-
+HAL_NVIC_SetPriority(SPI2_IRQn, 0, 0); // <-- ĐẶT ƯU TIÊN LÀ '0' (GIỐNG DMA)
+  HAL_NVIC_EnableIRQ(SPI2_IRQn);          // <-- BẬT NGẮT LÊN
   /* USER CODE END SPI2_Init 2 */
 
 }
@@ -342,7 +346,23 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_10|GPIO_PIN_11, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PB0 PB1 PB10 PB11 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_10|GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA8 PA9 */
   GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
@@ -351,13 +371,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-
 /* USER CODE END 4 */
 
 /**
