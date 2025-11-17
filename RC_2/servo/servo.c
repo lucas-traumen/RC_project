@@ -40,7 +40,17 @@ void Servo_WritePct(Servo_t* s, int16_t pct)
     if (pct < -100) pct = -100;
 
     /* -100 -> us_min ; 0 -> us_mid ; +100 -> us_max */
-    int32_t span = (int32_t)(s->us_max - s->us_mid);
-    int32_t us = (int32_t)s->us_mid + (span * pct) / 100;
-    Servo_WriteUS(s, (uint16_t)us);
+    uint16_t target_us;
+    
+    if (pct >= 0) {
+        // 0 đến +100: mid -> max
+        int32_t span = (int32_t)(s->us_max - s->us_mid);
+        target_us = s->us_mid + (uint16_t)((span * pct) / 100);
+    } else {
+        // -100 đến 0: min -> mid
+        int32_t span = (int32_t)(s->us_mid - s->us_min);
+        target_us = s->us_mid + (int16_t)((span * pct) / 100); // pct âm nên trừ
+    }
+    
+    Servo_WriteUS(s, target_us);
 }

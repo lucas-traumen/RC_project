@@ -2,185 +2,198 @@
 #include <string.h>
 #include "rc_radio_cfg.h"
 
-/*
- * Lấy cờ ngắt IRQ (được set trong main.c -> HAL_GPIO_EXTI_Callback)
- */
+/* === BIẾN TOÀN CỤC === */
 extern volatile uint8_t nrf_irq_flag; 
 
-/* Biến global để chứa frame nhận được */
-RC_Frame_t rx_frame;
+volatile RC_Frame_t rx_frame;   
+volatile RC_State_t sys_state;  
 
 static uint32_t last_rx_ms = 0;
-static Servo_t* pServoA = NULL;
-static Servo_t* pServoB = NULL;
+static Servo_t* pServoLift = NULL;
+static Servo_t* pServoGrip = NULL;
+static uint8_t grip_is_open = 0;
+static uint8_t last_grip_btn = 0;
 
-/* === (Các hàm helper của bạn: map_axis_signed, deadzone, clamp100) === */
-static int16_t map_axis_signed(int16_t v) {
+/* === HÀM HỖ TRỢ === */
+static int16_t map_axis(int16_t raw_val) {
+    // Logic MAP chuẩn: Input 0..4095 -> Output -100..100
     const int16_t MID = 2048;
-    if (v >= MID) {
-        return (int16_t)(((int32_t)(v - MID) * 100) / (4095 - MID));
+    int32_t result;
+    
+    if (raw_val == -1) return 0; // Lỗi phần cứng -> Về 0
+
+    if (raw_val >= MID) {
+        result = ((int32_t)(raw_val - MID) * 100) / (4095 - MID);
     } else {
-        return (int16_t)(-((int32_t)(MID - v) * 100) / MID);
+        result = -((int32_t)(MID - raw_val) * 100) / MID;
     }
+    return (int16_t)result;
 }
+
 static int16_t clamp100(int16_t v) {
     if (v > 100)  return 100;
     if (v < -100) return -100;
     return v;
 }
+
 static int16_t deadzone(int16_t v, uint8_t dz) {
     return (v > -dz && v < dz) ? 0 : v;
 }
 
-/* === (Hàm xử lý frame của bạn) === */
-static void rc_handle_frame(void)
+static uint16_t map_arm_to_servo(int16_t arm_pct) {
+    return 1500 + (int16_t)((arm_pct * 1000) / 100);
+}
+
+/* ========================================================= */
+/* GIẢI MÃ GÓI TIN (RAW -> STATE)                            */
+/* ========================================================= */
+static void rc_decode_frame(void)
 {
-    /* ===== MAIN MODE: MANUAL ===== */
-    if (rx_frame.main_mode == MAIN_MODE_MANUAL)
-    {
-        /* --- SUB MODE: PWM -> điều khiển bánh xe --- */
-        if (rx_frame.sub_mode == SUB_MODE_PWM)
-        {
-            int16_t vy = deadzone(map_axis_signed((int16_t)rx_frame.joyL_y), 5);
-            int16_t vx = deadzone(map_axis_signed((int16_t)rx_frame.joyL_x), 5);
-            int16_t left  = clamp100(vy + vx);
-            int16_t right = clamp100(vy - vx);
-            car_drive_percent((int8_t)left, (int8_t)right);
+    // [QUAN TRỌNG] Dòng này giúp TỰ ĐỘNG KẾT NỐI LẠI khi có dữ liệu
+    sys_state.is_connected = 1; 
+    
+    sys_state.main_mode = (RC_MainMode_t)rx_frame.raw_main_mode;
+    sys_state.sub_mode  = (RC_SubMode_t)rx_frame.raw_sub_mode;
+
+    // Lấy và Map Joystick
+    int16_t joy_Y = deadzone(map_axis(rx_frame.joyL_x), 5); // Tốc độ (Lên xuống)
+    int16_t joy_X = deadzone(map_axis(rx_frame.joyR_y), 5); // Hướng (Trái phải)
+    
+    sys_state.speed_val = joy_Y;
+
+    if (sys_state.sub_mode == SUBMODE_DRIVING) {
+        sys_state.turn_val = joy_X;
+        sys_state.arm_val  = 0;
+    } else {
+        sys_state.turn_val = 0;
+        sys_state.arm_val  = joy_X;
+        
+        uint8_t btn = rx_frame.reserved[0];
+        if (btn == 1 && last_grip_btn == 0) {
+            grip_is_open = !grip_is_open;
         }
-        /* --- SUB MODE: SERVO -> điều khiển servo --- */
-        else if (rx_frame.sub_mode == SUB_MODE_SERVO)
-        {
-            car_control(CAR_STOP_STATE, 0); 
-            if (pServoA) {
-                int16_t sv = deadzone(map_axis_signed((int16_t)rx_frame.joyR_y), 5);
-                Servo_WritePct(pServoA, sv);
-            }
-            if (pServoB) {
-                int16_t sv = deadzone(map_axis_signed((int16_t)rx_frame.joyR_x), 5);
-                Servo_WritePct(pServoB, sv);
-            }
-        }
-        else
-        {
-            car_control(CAR_STOP_STATE, 0);
-        }
-    }
-    /* ===== MAIN MODE: LINE ===== */
-    else if (rx_frame.main_mode == MAIN_MODE_LINE)
-    {
-        car_control(CAR_STOP_STATE, 0); // (Tạm thời dừng, bạn tự thêm logic PID)
+        last_grip_btn = btn;
+        sys_state.grip_cmd = grip_is_open;
     }
 }
 
-/*
- * ==========================================================
- * HÀM KHỞI TẠO RECEIVER (gọi 1 lần trong main)
- * ==========================================================
- */
-void RC_Receiver_Init(Servo_t* sv1, Servo_t* sv2)
+/* ========================================================= */
+/* MÁY TRẠNG THÁI ĐIỀU KHIỂN XE                              */
+/* ========================================================= */
+static void rc_run_state_machine(void)
 {
-    pServoA = sv1;
-    pServoB = sv2;
+    // [FAILSAFE] Nếu mất kết nối -> Dừng xe ngay lập tức
+    if (!sys_state.is_connected) {
+        car_control(CAR_STOP_STATE, 0);
+        return;
+    }
+
+    switch (sys_state.main_mode)
+    {
+        case MODE_LINE_FOLLOWER:
+            car_control(CAR_STOP_STATE, 0); // Chờ code Line
+            break;
+
+        case MODE_MANUAL:
+            if (sys_state.sub_mode == SUBMODE_DRIVING) {
+                // Lái xe
+                int16_t L = clamp100(sys_state.speed_val + sys_state.turn_val);
+                int16_t R = clamp100(sys_state.speed_val - sys_state.turn_val);
+                car_drive_percent((int8_t)L, (int8_t)R);
+            } else {
+                // Tay máy
+                car_drive_percent((int8_t)sys_state.speed_val, (int8_t)sys_state.speed_val);
+                
+                if (pServoLift) Servo_WriteUS(pServoLift, map_arm_to_servo(sys_state.arm_val));
+                if (pServoGrip) Servo_WriteUS(pServoGrip, grip_is_open ? 1800 : 1000);
+            }
+            break;
+
+        default:
+            car_control(CAR_STOP_STATE, 0);
+            break;
+    }
+}
+
+/* ========================================================= */
+/* INIT                                                      */
+/* ========================================================= */
+void RC_Receiver_Init(Servo_t* p_sv_lift, Servo_t* p_sv_grip)
+{
+    pServoLift = p_sv_lift;
+    pServoGrip = p_sv_grip;
     
-    memset(&rx_frame, 0, sizeof(RC_Frame_t));
+    // Xóa sạch bộ nhớ đệm khi khởi động
+    memset((void*)&rx_frame, 0, sizeof(RC_Frame_t));
+    memset((void*)&sys_state, 0, sizeof(RC_State_t));
+    
     last_rx_ms = HAL_GetTick();
+    grip_is_open = 0;
+    last_grip_btn = 0;
 
-    /*
-     * KHÔNG GỌI nrf24_driver_init() ở đây nữa
-     * vì main.c (phiên bản mới) đã gọi rồi.
-     */
-     
-    /* DI CHUYỂN TOÀN BỘ CODE CẤU HÌNH TỪ FILE CŨ CỦA BẠN VÀO ĐÂY */
-    /* (Vì nrf24_driver_init() của tôi không có code) */
-
-    /* 1) CE = 0 trước khi config */
+    // Config NRF24
     nrf24_ce_low();
-
-    /* 2) TẮT Auto-ACK, dùng pipe0 */
-    nrf24_write_reg_byte(NRF_REG_EN_AA,      0x00);
-    nrf24_write_reg_byte(NRF_REG_EN_RXADDR,  0x01);
-    nrf24_write_reg_byte(NRF_REG_SETUP_AW,   0x03);
-    nrf24_write_reg_byte(NRF_REG_SETUP_RETR, 0x15);
-
-    /* 3) RF channel & RF setup – PHẢI GIỐNG TX */
-    nrf24_write_reg_byte(NRF_REG_RF_CH,    RC_RF_CH);
+    nrf24_write_reg_byte(NRF_REG_CONFIG, 0x0F); 
+    nrf24_write_reg_byte(NRF_REG_EN_AA, 0x00);
+    nrf24_write_reg_byte(NRF_REG_EN_RXADDR, 0x01);
+    nrf24_write_reg_byte(NRF_REG_SETUP_AW, 0x03);
+    nrf24_write_reg_byte(NRF_REG_SETUP_RETR, 0x00);
+    nrf24_write_reg_byte(NRF_REG_RF_CH, RC_RF_CH);
     nrf24_write_reg_byte(NRF_REG_RF_SETUP, RC_RF_SETUP);
-
-    /* 4) Địa chỉ RX_P0 & TX_ADDR – cùng RC_ADDR */
     nrf24_write_register(NRF_REG_RX_ADDR_P0, RC_ADDR, 5);
-    nrf24_write_register(NRF_REG_TX_ADDR,    RC_ADDR, 5);
-
-    /* 5) Payload width cố định = sizeof(RC_Frame_t) */
+    nrf24_write_register(NRF_REG_TX_ADDR, RC_ADDR, 5);
     nrf24_write_reg_byte(NRF_REG_RX_PW_P0, (uint8_t)sizeof(RC_Frame_t));
-
-    /* 6) Tắt DPL/FEATURE */
-    nrf24_write_reg_byte(0x1C /*DYNPD*/,   0x00);
-    nrf24_write_reg_byte(0x1D /*FEATURE*/, 0x00);
-
-    /* 7) Clear cờ + flush FIFO */
+    nrf24_write_reg_byte(NRF_REG_DYNPD, 0x00);
+    nrf24_write_reg_byte(NRF_REG_FEATURE, 0x00);
     nrf24_write_reg_byte(NRF_REG_STATUS, 0x70);
     nrf24_flush_rx();
     nrf24_flush_tx();
-    
-    /* 8) Chuyển nRF24 sang chế độ RX (Dùng hàm trong driver) */
+    HAL_Delay(10);
     nrf24_set_rx_mode();
 }
 
-
-/*
- * ==========================================================
- * HÀM TÁC VỤ RECEIVER (gọi liên tục trong while(1))
- * ==========================================================
- */
+/* ========================================================= */
+/* TASK                                                      */
+/* ========================================================= */
 void RC_Receiver_Task(void)
 {
-    /*
-     * Biến g_nrf_status và g_nrf_status_ret là không cần thiết
-     * nếu bạn dùng kiến trúc ngắt IRQ.
-     * Chúng ta sẽ dùng cờ nrf_irq_flag.
-     */
+    uint32_t now = HAL_GetTick();
+    
+    // 1. KIỂM TRA MẤT KẾT NỐI (Time-out)
+    // Nếu quá 200ms không nhận được gì -> TỰ ĐỘNG NGẮT
+    if (now - last_rx_ms > 200) {
+        sys_state.is_connected = 0; // Set về 0
+        rc_run_state_machine();     // Dừng xe
+        // Không return ở đây để cho phép nó check IRQ ở dưới ngay khi có sóng lại
+    }
 
-    /* 1. Kiểm tra cờ ngắt (được set bởi EXTI callback) */
-    if (nrf_irq_flag)
-    {
-        nrf_irq_flag = 0; // Xóa cờ ngay
-        uint8_t status = 0;
+    // 2. KIỂM TRA CÓ SÓNG LẠI KHÔNG (IRQ)
+    if (nrf_irq_flag) {
+        nrf_irq_flag = 0;
         
-        /* 2. ĐỌC STATUS (Dùng Polling - AN TOÀN) */
-        if (nrf24_get_status(&status) == HAL_OK)
-        {
-            /* 3. Nếu ngắt là do "Đã nhận dữ liệu" (RX_DR) */
-            if (status & NRF_STATUS_RX_DR)
-            {
-                /* 4. ĐỌC PAYLOAD (Dùng Polling - AN TOÀN) */
-                // (Hàm này bây giờ đã gọi nrf24_spi_transfer_polling)
-                if (nrf24_read_rx_payload_dma((uint8_t*)&rx_frame, sizeof(RC_Frame_t)) == HAL_OK)
-                {
-                    // === NẾU CODE CHẠY ĐẾN ĐÂY, BẠN ĐÃ THÀNH CÔNG ===
-                    last_rx_ms = HAL_GetTick(); 
-                    rc_handle_frame();
-                }
+        uint8_t status;
+        if (nrf24_get_status(&status) == HAL_OK && (status & NRF_STATUS_RX_DR)) {
+            
+            uint8_t temp_buf[sizeof(RC_Frame_t)];
+            if (nrf24_read_rx_payload_dma(temp_buf, sizeof(RC_Frame_t)) == HAL_OK) {
                 
-                /* 5. XÓA CỜ NGẮT (Dùng Polling - AN TOÀN) */
-                nrf24_write_reg_byte(NRF_REG_STATUS, NRF_STATUS_RX_DR);
+                // Copy dữ liệu mới vào
+                memcpy((void*)&rx_frame, temp_buf, sizeof(RC_Frame_t));
+                
+                // Cập nhật thời gian nhận cuối cùng
+                last_rx_ms = now; 
+                
+                // === TỰ ĐỘNG KẾT NỐI LẠI TẠI ĐÂY ===
+                rc_decode_frame();      // Trong hàm này sẽ set is_connected = 1
+                rc_run_state_machine(); // Xe chạy lại ngay
             }
             
-            /* Xử lý các cờ ngắt khác (nếu cần) */
-            if (status & NRF_STATUS_TX_DS) {
-                nrf24_write_reg_byte(NRF_REG_STATUS, NRF_STATUS_TX_DS);
-            }
-            if (status & NRF_STATUS_MAX_RT) {
-                nrf24_write_reg_byte(NRF_REG_STATUS, NRF_STATUS_MAX_RT);
-                nrf24_flush_tx();
-            }
+            nrf24_write_reg_byte(NRF_REG_STATUS, NRF_STATUS_RX_DR);
         }
-    } // end if(nrf_irq_flag)
-
-    /* 7. Xử lý Failsafe (nếu mất sóng quá 500ms) */
-    if (HAL_GetTick() - last_rx_ms > 200) // (Dùng 200ms như file cũ của bạn)
-    {
-        car_control(CAR_STOP_STATE, 0); // Dừng xe
-        if (pServoA) Servo_WriteUS(pServoA, pServoA->us_mid);
-        if (pServoB) Servo_WriteUS(pServoB, pServoB->us_mid);
+        
+        if (status & NRF_STATUS_TX_DS) 
+            nrf24_write_reg_byte(NRF_REG_STATUS, NRF_STATUS_TX_DS);
+        if (status & NRF_STATUS_MAX_RT) 
+            nrf24_write_reg_byte(NRF_REG_STATUS, NRF_STATUS_MAX_RT);
     }
 }

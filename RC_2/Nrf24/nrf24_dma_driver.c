@@ -27,11 +27,11 @@ static inline void dwt_delay_init(void) {
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     DWT->CYCCNT = 0;
 }
-static inline void delay_us(uint32_t us) {
-    uint32_t cycles = us * (HAL_RCC_GetHCLKFreq() / 1000000);
-    uint32_t start = DWT->CYCCNT;
-    while ((DWT->CYCCNT - start) < cycles);
-}
+//static inline void delay_us(uint32_t us) {
+//    uint32_t cycles = us * (HAL_RCC_GetHCLKFreq() / 1000000);
+//    uint32_t start = DWT->CYCCNT;
+//    while ((DWT->CYCCNT - start) < cycles);
+//}
 
 // ==========================================================
 // ===== ĐỌC/GHI THANH GHI (DÙNG POLLING) =====

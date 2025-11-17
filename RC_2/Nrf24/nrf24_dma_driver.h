@@ -48,24 +48,24 @@
 /* ===== Kh?i t?o ===== */
 void nrf24_driver_init(void);
 
-/* ===== Ð?c/Ghi Thanh Ghi (S? dùng Polling) ===== */
+/* ===== ??c/Ghi Thanh Ghi (S? d?ng Polling) ===== */
 HAL_StatusTypeDef nrf24_read_register(uint8_t reg, uint8_t *buf, uint8_t len);
 HAL_StatusTypeDef nrf24_write_register(uint8_t reg, const uint8_t *buf, uint8_t len);
 HAL_StatusTypeDef nrf24_read_reg_byte(uint8_t reg, uint8_t *value);
 HAL_StatusTypeDef nrf24_write_reg_byte(uint8_t reg, uint8_t value);
 HAL_StatusTypeDef nrf24_get_status(uint8_t *status);
 
-/* ===== L?nh (S? dùng Polling) ===== */
+/* ===== L?nh (S? d?ng Polling) ===== */
 HAL_StatusTypeDef nrf24_flush_tx(void);
 HAL_StatusTypeDef nrf24_flush_rx(void);
                                             
-/* ===== RX side (Payload - S? S?A DÙNG POLLING) ===== */
+/* ===== RX side (Payload - S? S?A D?NG POLLING) ===== */
 HAL_StatusTypeDef nrf24_read_rx_payload_width(uint8_t *payload_len);
-/* Ð?i tên hàm d? cho gi?ng v?i rc_receiver.c */
+/* ??i t?n h?m d? cho gi?ng v?i rc_receiver.c */
 HAL_StatusTypeDef nrf24_read_rx_payload_dma(uint8_t *payload, uint8_t len);
 void nrf24_set_rx_mode(void); 
 
-/* ===== GPIO Helpers (cho rc_receiver dùng) ===== */
+/* ===== GPIO Helpers (cho rc_receiver d?ng) ===== */
 void nrf24_ce_low(void);
 void nrf24_ce_high(void);
 

@@ -524,6 +524,11 @@
           <GroupName>rc_river</GroupName>
           <Files>
             <File>
+              <FileName>rc_radio_cfg.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\rc_receiver\rc_radio_cfg.h</FilePath>
+            </File>
+            <File>
               <FileName>rc_receiver.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\rc_receiver\rc_receiver.c</FilePath>
@@ -532,11 +537,6 @@
               <FileName>rc_receiver.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\rc_receiver\rc_receiver.h</FilePath>
-            </File>
-            <File>
-              <FileName>rc_radio_cfg.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\rc_receiver\rc_radio_cfg.h</FilePath>
             </File>
           </Files>
         </Group>

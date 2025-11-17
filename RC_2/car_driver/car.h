@@ -7,19 +7,20 @@ typedef enum {
     CAR_STOP_STATE = 0,
     CAR_FORWARD_STATE,
     CAR_BACKWARD_STATE,
-    CAR_LEFT_STATE,
-    CAR_RIGHT_STATE,
+    CAR_LEFT_STATE,     // Quay trái (Spin Left)
+    CAR_RIGHT_STATE,    // Quay phải (Spin Right)
+    CAR_MIXED_STATE     // (Mới) Trạng thái hỗn hợp (vừa đi vừa rẽ)
 } Car_Typedef;
 
-/* Khởi tạo 2 motor (dùng timer PWM đã cấu hình cho bánh xe) */
+/* Khởi tạo */
 void car_init(TIM_HandleTypeDef *htim_pwm);
 
-/* Điều khiển rời rạc (giữ nguyên logic cũ) */
+/* Điều khiển theo trạng thái cố định */
 void car_control(Car_Typedef car_state, uint8_t speed);
 
-/* Điều khiển vi-sai theo phần trăm: -100..+100
-   + là tiến, - là lùi.
-   Mapping giữ nguyên: Bánh phải + => CW, Bánh trái + => CCW. */
-void car_drive_percent(int8_t left_pct, int8_t right_pct);
+/* * Điều khiển theo phần trăm (-100 đến 100) 
+ * VÀ TRẢ VỀ TRẠNG THÁI HIỆN TẠI 
+ */
+Car_Typedef car_drive_percent(int8_t left_pct, int8_t right_pct);
 
 #endif /* CAR_H */
